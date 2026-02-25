@@ -1,7 +1,7 @@
 /**
  * ==========================================
- * PRIMEBLOX MULTIPLAYER SYSTEM V4
- * (FULL SCALE - 250+ LINES)
+ * PRIMEBLOX MULTIPLAYER SYSTEM V5 - ULTIMATE
+ * FIX: AUTO-VOICE, DM & PERMISSION GUARD
  * ==========================================
  */
 
@@ -29,12 +29,12 @@ const client = new Client({
     partials: [Partials.Channel, Partials.Message, Partials.User]
 });
 
-// --- CẤU HÌNH HỆ THỐNG CHI TIẾT ---
+// --- CẤU HÌNH HỆ THỐNG CHI TIẾT (ĐÃ GẮN ID CỦA BẠN) ---
 const CONFIG = {
     ADMIN_ROLE_ID: "1465374336214106237",
     VERIFY_CHANNEL_ID: "1476164329962213477",
     CATEGORY_VOICE_ID: "1476182203653161061", 
-    LOG_CHANNEL_ID: "1476182400617680968", // Thêm ID kênh log trận đấu
+    LOG_CHANNEL_ID: "1476182400617680968",
     VIP_LINK: "https://www.roblox.com/vi/games/301549746/Counter-Blox?privateServerLinkCode=56786714113746670670511968107962",
     BANNER_URL: "https://www.dexerto.com/cdn-image/wp-content/uploads/2026/01/22/Counter-Blox-codes.jpg?width=1200&quality=60&format=auto",
     COLOR: {
@@ -133,7 +133,6 @@ client.on('messageCreate', async (msg) => {
         const [rows] = await pool.execute('SELECT * FROM users WHERE discordId = ?', [msg.author.id]);
         if (!rows[0]) return msg.reply(`❌ Bạn chưa xác minh! Hãy thực hiện tại <#${CONFIG.VERIFY_CHANNEL_ID}>.`);
 
-        // Kiểm tra xem đã trong hàng chờ nào chưa
         const alreadyIn = Object.entries(queues).find(([m, q]) => q.players.some(p => p.id === msg.author.id));
         if (alreadyIn) return msg.reply(`🚫 Bạn đã tham gia hàng chờ **${alreadyIn[0]}** rồi!`);
 
@@ -153,7 +152,7 @@ client.on('messageCreate', async (msg) => {
         // Logic khi hàng chờ ĐỦ NGƯỜI
         if (queues[mode].players.length === queues[mode].limit) {
             const players = [...queues[mode].players].sort(() => 0.5 - Math.random());
-            queues[mode].players = []; // Reset queue ngay lập tức
+            queues[mode].players = []; 
 
             const mId = Math.floor(100000 + Math.random() * 900000);
             const rN = [...teamNames].sort(() => 0.5 - Math.random());
@@ -161,20 +160,23 @@ client.on('messageCreate', async (msg) => {
             const t2 = players.slice(players.length / 2);
 
             try {
-                // TẠO CÁC PHÒNG VOICE
-                const vc1 = await msg.guild.channels.create({
-                    name: `🔊 ${rN[0]} (#${mId})`,
-                    type: ChannelType.GuildVoice,
-                    parent: CONFIG.CATEGORY_VOICE_ID,
-                    permissionOverwrites: [{ id: msg.guild.id, deny: [PermissionsBitField.Flags.ViewChannel] }]
-                });
+                // HÀM TẠO VOICE AN TOÀN (FIX LỖI)
+                const createMatchVoice = async (name) => {
+                    return await msg.guild.channels.create({
+                        name: name,
+                        type: ChannelType.GuildVoice,
+                        parent: CONFIG.CATEGORY_VOICE_ID,
+                        permissionOverwrites: [
+                            { id: msg.guild.id, deny: [PermissionsBitField.Flags.Connect, PermissionsBitField.Flags.ViewChannel] }
+                        ]
+                    }).catch(async () => {
+                        // Fallback nếu sai ID Category
+                        return await msg.guild.channels.create({ name: name, type: ChannelType.GuildVoice });
+                    });
+                };
 
-                const vc2 = await msg.guild.channels.create({
-                    name: `🔊 ${rN[1]} (#${mId})`,
-                    type: ChannelType.GuildVoice,
-                    parent: CONFIG.CATEGORY_VOICE_ID,
-                    permissionOverwrites: [{ id: msg.guild.id, deny: [PermissionsBitField.Flags.ViewChannel] }]
-                });
+                const vc1 = await createMatchVoice(`🔊 ${rN[0]} (#${mId})`);
+                const vc2 = await createMatchVoice(`🔊 ${rN[1]} (#${mId})`);
 
                 activeMatches.push({ id: mId, mode, t1Name: rN[0], t2Name: rN[1], t1P: t1, t2P: t2, voices: [vc1.id, vc2.id] });
 
@@ -185,12 +187,12 @@ client.on('messageCreate', async (msg) => {
                         { name: `🟦 TEAM ${rN[0]}`, value: t1.map(p => `• ${p.name} (${p.elo})`).join('\n'), inline: true },
                         { name: `🟥 TEAM ${rN[1]}`, value: t2.map(p => `• ${p.name} (${p.elo})`).join('\n'), inline: true }
                     )
-                    .setFooter({ text: `Mode: ${mode} | Tự động khóa phòng sau 5 phút` })
+                    .setFooter({ text: `Mode: ${mode} | Check DM để lấy link!` })
                     .setColor(CONFIG.COLOR.GOLD);
 
                 msg.channel.send({ content: "@everyone", embeds: [matchEmbed] });
 
-                // GỬI DM VỚI LOGIC TRY-CATCH CHẶT CHẼ
+                // GỬI DM VỚI LOGIC FETCH MỚI NHẤT
                 const dmEmbed = new EmbedBuilder()
                     .setTitle("🛡️ ĐẾN GIỜ CHIẾN ĐẤU!")
                     .setDescription(`Bạn đã được xếp trận #${mId}. Hãy tham gia ngay!`)
@@ -204,24 +206,21 @@ client.on('messageCreate', async (msg) => {
                     const member = await client.users.fetch(p.id).catch(() => null);
                     if (member) {
                         await member.send({ embeds: [dmEmbed] }).catch(() => {
-                            msg.channel.send(`⚠️ Không thể DM cho <@${p.id}>. Hãy check link VIP tại kênh này!`);
+                            msg.channel.send(`⚠️ Không thể DM cho <@${p.id}>. Hãy check link VIP tại tin nhắn ghim!`);
                         });
                     }
                 }
 
-                // Cập nhật quyền Voice (Khóa phòng sau khi bắt đầu)
-                setTimeout(async () => {
-                    const updateVoice = async (vId, pList) => {
-                        const channel = await msg.guild.channels.fetch(vId).catch(() => null);
-                        if (channel) {
-                            await channel.permissionOverwrites.set([
-                                { id: msg.guild.id, deny: [PermissionsBitField.Flags.Connect, PermissionsBitField.Flags.ViewChannel] },
-                                ...pList.map(p => ({ id: p.id, allow: [PermissionsBitField.Flags.Connect, PermissionsBitField.Flags.ViewChannel] }))
-                            ]);
+                // Cấp quyền Voice ngay lập tức cho người trong trận
+                const grantPerms = async (vId, pList) => {
+                    const channel = await msg.guild.channels.fetch(vId).catch(() => null);
+                    if (channel) {
+                        for(const p of pList) {
+                            await channel.permissionOverwrites.edit(p.id, { Connect: true, ViewChannel: true });
                         }
-                    };
-                    await updateVoice(vc1.id, t1); await updateVoice(vc2.id, t2);
-                }, 5 * 60 * 1000);
+                    }
+                };
+                await grantPerms(vc1.id, t1); await grantPerms(vc2.id, t2);
 
             } catch (err) {
                 console.error("Lỗi tạo trận:", err);
@@ -230,7 +229,7 @@ client.on('messageCreate', async (msg) => {
         }
     }
 
-    // --- LỆNH: XÁC NHẬN KẾT QUẢ (Admin) ---
+    // --- LỆNH: XÁC NHẬN KẾT QUẢ ---
     if (command === 'win') {
         if (!msg.member.roles.cache.has(CONFIG.ADMIN_ROLE_ID)) return msg.reply("❌ Bạn không có quyền kết thúc trận đấu.");
 
@@ -245,7 +244,6 @@ client.on('messageCreate', async (msg) => {
         const winners = (winnerTeam === match.t1Name) ? match.t1P : match.t2P;
         const losers = (winnerTeam === match.t1Name) ? match.t2P : match.t1P;
 
-        // Cập nhật Database tuần tự
         for (const p of winners) {
             await pool.execute('UPDATE users SET elo = elo + ?, wins = wins + 1 WHERE discordId = ?', [CONFIG.ELO.GAIN, p.id]);
         }
@@ -264,9 +262,8 @@ client.on('messageCreate', async (msg) => {
             .setTimestamp();
 
         msg.channel.send({ embeds: [resEmbed] });
-        sendLog(msg.guild, resEmbed); // Gửi vào kênh Log
+        sendLog(msg.guild, resEmbed);
 
-        // Xóa phòng Voice
         for (const vId of match.voices) {
             const ch = await msg.guild.channels.fetch(vId).catch(() => null);
             if (ch) await ch.delete().catch(() => {});
@@ -274,7 +271,7 @@ client.on('messageCreate', async (msg) => {
         activeMatches.splice(matchIdx, 1);
     }
 
-    // --- CÁC LỆNH PHỤ ---
+    // --- THỐNG KÊ & BẢNG XẾP HẠNG ---
     if (command === 'stats') {
         const [r] = await pool.execute('SELECT * FROM users WHERE discordId = ?', [msg.author.id]);
         if (!r[0]) return msg.reply("❌ Bạn chưa xác minh.");
@@ -294,11 +291,7 @@ client.on('messageCreate', async (msg) => {
     if (command === 'lb') {
         const [top] = await pool.execute('SELECT robloxName, elo FROM users ORDER BY elo DESC LIMIT 10');
         const list = top.map((u, i) => `**#${i+1}** \`${u.robloxName}\` — ${u.elo} ELO`).join('\n');
-        const embed = new EmbedBuilder()
-            .setTitle("🏆 BẢNG XẾP HẠNG TOP 10 CAO THỦ")
-            .setDescription(list || "Chưa có dữ liệu.")
-            .setColor(CONFIG.COLOR.GOLD);
-        msg.reply({ embeds: [embed] });
+        msg.reply({ embeds: [new EmbedBuilder().setTitle("🏆 TOP 10 CAO THỦ").setDescription(list || "Chưa có dữ liệu.").setColor(CONFIG.COLOR.GOLD)] });
     }
 
     if (command === 'leave') {
@@ -314,47 +307,34 @@ client.on('messageCreate', async (msg) => {
 });
 
 /**
- * HỆ THỐNG XỬ LÝ TƯƠNG TÁC (BUTTON & MODAL)
+ * XỬ LÝ VERIFY (BUTTON & MODAL)
  */
 client.on('interactionCreate', async (i) => {
-    // Xử lý nút bấm Verify
     if (i.isButton()) {
         if (i.customId === 'v_start') {
             const [r] = await pool.execute('SELECT discordId FROM users WHERE discordId = ?', [i.user.id]);
-            if (r[0]) return i.reply({ content: "⚠️ Bạn đã xác minh tài khoản rồi!", ephemeral: true });
+            if (r[0]) return i.reply({ content: "⚠️ Bạn đã xác minh rồi!", ephemeral: true });
 
             const modal = new ModalBuilder().setCustomId('modal_v').setTitle('PrimeBlox Verification');
-            const input = new TextInputBuilder().setCustomId('r_user').setLabel("Nhập Roblox Username").setStyle(TextInputStyle.Short).setPlaceholder("Ví dụ: RobloxPlayer123").setRequired(true);
+            const input = new TextInputBuilder().setCustomId('r_user').setLabel("Nhập Roblox Username").setStyle(TextInputStyle.Short).setRequired(true);
             modal.addComponents(new ActionRowBuilder().addComponents(input));
             await i.showModal(modal);
         }
-
         if (i.customId === 'v_unlink') {
             await pool.execute('DELETE FROM users WHERE discordId = ?', [i.user.id]);
-            await i.reply({ content: "🔗 Đã hủy liên kết tài khoản thành công.", ephemeral: true });
+            await i.reply({ content: "🔗 Đã hủy liên kết thành công.", ephemeral: true });
         }
     }
 
-    // Xử lý Modal Submit
     if (i.type === InteractionType.ModalSubmit && i.customId === 'modal_v') {
         const rName = i.fields.getTextInputValue('r_user');
         await i.deferReply({ ephemeral: true });
-
         try {
             const rId = await nblox.getIdFromUsername(rName);
-            if (!rId) return i.editReply("❌ Không tìm thấy Username này trên Roblox. Hãy kiểm tra lại!");
-
             await pool.execute('INSERT INTO users (discordId, robloxName, robloxId) VALUES (?, ?, ?)', [i.user.id, rName, rId.toString()]);
-            
-            const successEmbed = new EmbedBuilder()
-                .setTitle("✅ XÁC MINH THÀNH CÔNG")
-                .setDescription(`Chào mừng **${rName}** đến với hệ thống đấu hạng!`)
-                .setColor(CONFIG.COLOR.SUCCESS);
-            
-            await i.editReply({ embeds: [successEmbed] });
+            await i.editReply({ embeds: [new EmbedBuilder().setTitle("✅ XÁC MINH THÀNH CÔNG").setDescription(`Chào mừng **${rName}**!`).setColor(CONFIG.COLOR.SUCCESS)] });
         } catch (e) {
-            console.error(e);
-            await i.editReply("❌ Có lỗi xảy ra trong quá trình xác minh. Vui lòng thử lại sau.");
+            await i.editReply("❌ Không tìm thấy Username Roblox này!");
         }
     }
 });
