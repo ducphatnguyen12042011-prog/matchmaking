@@ -3,7 +3,7 @@ const {
     ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, 
     TextInputStyle, InteractionType, ChannelType, PermissionsBitField 
 } = require('discord.js');
-const mysql = require('mysql2/promise'); // Sử dụng mysql2 thay vì mongoose
+const mysql = require('mysql2/promise');
 const nblox = require('noblox.js');
 require('dotenv').config();
 
@@ -17,16 +17,13 @@ const client = new Client({
     ]
 });
 
-// --- KẾT NỐI DATABASE MYSQL ---
+// --- KẾT NỐI DATABASE MYSQL QUA DATABASE_URL ---
 const pool = mysql.createPool({
-    host: process.env.MYSQLHOST,
-    user: process.env.MYSQLUSER,
-    password: process.env.MYSQLPASSWORD,
-    database: process.env.MYSQLDATABASE,
-    port: process.env.MYSQLPORT || 3306,
+    uri: process.env.DATABASE_URL, // Tự động lấy từ Railway
     waitForConnections: true,
     connectionLimit: 10,
-    queueLimit: 0
+    queueLimit: 0,
+    ssl: { rejectUnauthorized: false } 
 });
 
 // Tạo bảng nếu chưa tồn tại khi bot khởi động
