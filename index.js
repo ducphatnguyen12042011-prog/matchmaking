@@ -71,11 +71,11 @@ const pool = mysql.createPool({
 
 function getRankTier(elo) {
     if (elo >= 2500) return "👑 GRANDMASTER";
-    if (elo >= 2000) return "💠 ELITE MASTER";
-    if (elo >= 1500) return "⚔️ DIAMOND";
+    if (elo >= 2000) return "🎖️ ELITE MASTER";
+    if (elo >= 1500) return "💎 DIAMOND";
     if (elo >= 1200) return "🔥 PLATINUM";
-    if (elo >= 1000) return "🛡️ GOLD";
-    return "🎗️ SILVER";
+    if (elo >= 1000) return "🌟 GOLD";
+    return "💿 SILVER";
 }
 
 async function sendLog(title, desc, color = CONFIG.COLOR.INFO) {
