@@ -1,7 +1,6 @@
 {
   "name": "primeblox-ranked-bot",
   "version": "1.0.0",
-  "description": "Discord Ranked Bot for PrimeBlox",
   "main": "index.js",
   "engines": {
     "node": ">=20.0.0"
