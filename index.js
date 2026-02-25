@@ -33,10 +33,10 @@ const client = new Client({
 const CONFIG = {
     ADMIN_ROLE_ID: "1465374336214106237",
     VERIFY_CHANNEL_ID: "1476164329962213477",
-    CATEGORY_VOICE_ID: "ID_DANH_MUC_CUA_BAN", 
-    LOG_CHANNEL_ID: "ID_KENH_LOG_CUA_BAN", // Thêm ID kênh log trận đấu
+    CATEGORY_VOICE_ID: "1476182203653161061", 
+    LOG_CHANNEL_ID: "1476182400617680968", // Thêm ID kênh log trận đấu
     VIP_LINK: "https://www.roblox.com/vi/games/301549746/Counter-Blox?privateServerLinkCode=56786714113746670670511968107962",
-    BANNER_URL: "https://i.imgur.com/your-cbam-banner.png",
+    BANNER_URL: "https://www.dexerto.com/cdn-image/wp-content/uploads/2026/01/22/Counter-Blox-codes.jpg?width=1200&quality=60&format=auto",
     COLOR: {
         SUCCESS: 0x2ecc71,
         ERROR: 0xe74c3c,
