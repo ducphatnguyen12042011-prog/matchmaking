@@ -3,7 +3,7 @@ const {
     ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, 
     TextInputStyle, InteractionType, ChannelType, PermissionsBitField 
 } = require('discord.js');
-const mongoose = require('mongoose');
+const mysql = require('mysql2/promise'); // Sử dụng mysql2 thay vì mongoose
 const nblox = require('noblox.js');
 require('dotenv').config();
 
@@ -17,19 +17,40 @@ const client = new Client({
     ]
 });
 
-// --- KẾT NỐI DATABASE ---
-mongoose.connect(process.env.MONGO_URI).then(() => console.log("✅ MongoDB Connected"));
+// --- KẾT NỐI DATABASE MYSQL ---
+const pool = mysql.createPool({
+    host: process.env.MYSQLHOST,
+    user: process.env.MYSQLUSER,
+    password: process.env.MYSQLPASSWORD,
+    database: process.env.MYSQLDATABASE,
+    port: process.env.MYSQLPORT || 3306,
+    waitForConnections: true,
+    connectionLimit: 10,
+    queueLimit: 0
+});
 
-const User = mongoose.model('User', new mongoose.Schema({
-    discordId: String, 
-    robloxId: String, 
-    robloxName: String,
-    elo: { type: Number, default: 1000 }, 
-    wins: { type: Number, default: 0 }, 
-    losses: { type: Number, default: 0 },
-    verifyCode: String
-}));
-
+// Tạo bảng nếu chưa tồn tại khi bot khởi động
+async function initDB() {
+    try {
+        const connection = await pool.getConnection();
+        await connection.query(`
+            CREATE TABLE IF NOT EXISTS users (
+                discordId VARCHAR(255) PRIMARY KEY,
+                robloxId VARCHAR(255),
+                robloxName VARCHAR(255),
+                elo INT DEFAULT 1000,
+                wins INT DEFAULT 0,
+                losses INT DEFAULT 0,
+                verifyCode VARCHAR(255)
+            )
+        `);
+        connection.release();
+        console.log("✅ MySQL Connected & Table Ready");
+    } catch (err) {
+        console.error("❌ MySQL Connection Error: ", err);
+    }
+}
+initDB();
 // --- CẤU HÌNH ---
 const queues = { "1v1": { p: [], lim: 2 }, "2v2": { p: [], lim: 4 }, "5v5": { p: [], lim: 10 } };
 let activeMatches = [];
