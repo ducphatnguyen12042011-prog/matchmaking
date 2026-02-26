@@ -75,32 +75,45 @@ async function updateAutoLB() {
     } catch (err) { console.log("LB Update Error"); }
 }
 
-// --- EVENTS ---
+// --- EVENT READY (TỰ ĐỘNG GỬI VERIFY VÀO ID KÊNH) ---
 client.on('ready', async () => {
-    await initDB();
-    client.user.setActivity('PrimeBlox Rank', { type: ActivityType.Competing });
-    updateAutoLB();
-});
+    await setupDatabase();
+    client.user.setActivity('Ranked V13.9', { type: ActivityType.Watching });
+    console.log(`🚀 Bot ready: ${client.user.tag}`);
 
-client.on('messageCreate', async (msg) => {
-    if (msg.author.bot || !msg.content.startsWith('!')) return;
-    const args = msg.content.slice(1).trim().split(/ +/);
-    const command = args.shift().toLowerCase();
+    // 1. Tự động cập nhật Leaderboard
+    updateLeaderboard();
 
-    // 1. SETUP VERIFY
-    if (command === 'setup-verify') {
-        if (!msg.member.roles.cache.has(CONFIG.ADMIN_ROLE_ID)) return;
+    // 2. TỰ ĐỘNG GỬI BẢNG VERIFY VÀO ID KÊNH (1476202572594548799)
+    try {
         const vChan = await client.channels.fetch(CONFIG.VERIFY_CHANNEL_ID).catch(() => null);
-        if (!vChan) return msg.reply("Sai ID Verify Channel!");
-        
-        const embed = new EmbedBuilder().setTitle("🛡️ PRIMEBLOX VERIFICATION").setDescription("Nhấn nút để xác minh tài khoản.").setColor(CONFIG.COLOR.PURPLE).setImage(CONFIG.BANNER_URL);
-        const row = new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setCustomId('v_start').setLabel('Xác minh').setStyle(ButtonStyle.Success).setEmoji('✅'),
-            new ButtonBuilder().setCustomId('v_unlink').setLabel('Unlink').setStyle(ButtonStyle.Danger).setEmoji('🗑️')
-        );
-        await vChan.send({ embeds: [embed], components: [row] });
-        msg.reply(`✅ Đã setup tại kênh <#${CONFIG.VERIFY_CHANNEL_ID}>!`);
+        if (vChan) {
+            // Dọn dẹp tin nhắn cũ của Bot để tránh spam
+            const oldMsgs = await vChan.messages.fetch({ limit: 10 });
+            const botMsgs = oldMsgs.filter(m => m.author.id === client.user.id);
+            if (botMsgs.size > 0) await vChan.bulkDelete(botMsgs).catch(() => {});
+
+            // Gửi bảng Verify mới - AI CŨNG BẤM ĐƯỢC
+            const embed = new EmbedBuilder()
+                .setTitle("🛡️ PRIMEBLOX SECURITY & VERIFICATION")
+                .setDescription("Chào mừng chiến binh! Nhấn nút bên dưới để bắt đầu tham gia hệ thống Rank.\n\n✅ **Xác Minh:** Liên kết tài khoản Roblox.\n🔄 **Đổi Tên:** Cập nhật lại tên nếu bạn thay đổi tên Roblox.\n🗑️ **Unlink:** Xóa dữ liệu liên kết.")
+                .setColor(CONFIG.COLOR.PURPLE)
+                .setImage(CONFIG.BANNER_URL)
+                .setFooter({ text: "Hệ thống xác minh tự động hoạt động 24/7" });
+
+            const row = new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId('btn_v').setLabel('Xác Minh').setStyle(ButtonStyle.Success).setEmoji('✅'),
+                new ButtonBuilder().setCustomId('btn_c').setLabel('Đổi Tên').setStyle(ButtonStyle.Primary).setEmoji('🔄'),
+                new ButtonBuilder().setCustomId('btn_u').setLabel('Unlink').setStyle(ButtonStyle.Danger).setEmoji('🗑️')
+            );
+
+            await vChan.send({ embeds: [embed], components: [row] });
+            console.log("✅ [SYSTEM] Đã tự động gửi bảng Verify vào kênh ID.");
+        }
+    } catch (err) {
+        console.error("❌ [ERROR] Không thể gửi bảng Verify tự động:", err);
     }
+});
 
     // 2. JOIN MATCH
     if (command === 'j' || command === 'join') {
