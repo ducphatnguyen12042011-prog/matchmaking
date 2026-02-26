@@ -123,38 +123,41 @@ async function updateAutoLB() {
 }
 
 // --- EVENT: BOT SẴN SÀNG ---
-client.on('ready', async () => {
-    console.log(`🚀 [SUCCESS] ${client.user.tag} đã hoạt động!`);
-    client.user.setPresence({ activities: [{ name: 'Counter-Blox Matchmaking', type: ActivityType.Watching }], status: 'online' });
+// --- LỆNH SETUP VERIFY (DÀNH CHO ADMIN) ---
+    if (command === 'setup-verify') {
+        if (!msg.member.roles.cache.has(CONFIG.ADMIN_ROLE_ID)) return msg.reply("🚫 Bạn không có quyền!");
 
-    // Tự động gửi tin nhắn Verify nếu chưa có
-    const vChan = await client.channels.fetch(CONFIG.VERIFY_CHANNEL_ID).catch(() => null);
-    if (vChan) {
-        const msgs = await vChan.messages.fetch({ limit: 10 });
-        if (!msgs.some(m => m.author.id === client.user.id)) {
-            const embed = new EmbedBuilder()
-                .setTitle("🛡️ PRIMEBLOX SECURITY & VERIFICATION")
-                .setDescription("Vui lòng nhấn các nút bên dưới để quản lý tài khoản thi đấu của bạn.")
-                .addFields(
-                    { name: "✅ XÁC MINH", value: "Liên kết tài khoản Roblox lần đầu.", inline: true },
-                    { name: "🔄 ĐỔI ACC", value: "Cập nhật lại tên nếu bạn đổi tên Roblox.", inline: true },
-                    { name: "🔓 UNLINK", value: "Xóa toàn bộ dữ liệu để làm lại từ đầu.", inline: true }
-                )
-                .setColor(CONFIG.COLOR.PURPLE)
-                .setImage(CONFIG.BANNER_URL);
-            
-            const row = new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId('v_start').setLabel('Xác minh').setStyle(ButtonStyle.Success).setEmoji('🛡️'),
-                new ButtonBuilder().setCustomId('v_change').setLabel('Đổi Tên').setStyle(ButtonStyle.Primary).setEmoji('📝'),
-                new ButtonBuilder().setCustomId('v_unlink').setLabel('Unlink').setStyle(ButtonStyle.Danger).setEmoji('🗑️')
-            );
-            await vChan.send({ embeds: [embed], components: [row] });
+        const vChan = await client.channels.fetch(CONFIG.VERIFY_CHANNEL_ID).catch(() => null);
+        if (!vChan) return msg.reply("❌ Không tìm thấy Channel Verify. Kiểm tra lại ID trong CONFIG.");
+
+        // Xóa tin nhắn cũ của bot trong channel đó để tránh loãng
+        const oldMsgs = await vChan.messages.fetch({ limit: 50 });
+        const botMsgs = oldMsgs.filter(m => m.author.id === client.user.id);
+        if (botMsgs.size > 0) {
+            await vChan.bulkDelete(botMsgs).catch(() => {});
         }
+
+        const embed = new EmbedBuilder()
+            .setTitle("🛡️ PRIMEBLOX SECURITY & VERIFICATION")
+            .setDescription("Vui lòng nhấn các nút bên dưới để quản lý tài khoản thi đấu của bạn.")
+            .addFields(
+                { name: "✅ XÁC MINH", value: "Liên kết tài khoản Roblox lần đầu.", inline: true },
+                { name: "🔄 ĐỔI ACC", value: "Cập nhật lại tên nếu bạn đổi tên Roblox.", inline: true },
+                { name: "🔓 UNLINK", value: "Xóa toàn bộ dữ liệu để làm lại từ đầu.", inline: true }
+            )
+            .setColor(CONFIG.COLOR.PURPLE)
+            .setImage(CONFIG.BANNER_URL)
+            .setFooter({ text: "PrimeBlox System • Grandmaster Edition" });
+
+        const row = new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId('v_start').setLabel('Xác minh').setStyle(ButtonStyle.Success).setEmoji('🛡️'),
+            new ButtonBuilder().setCustomId('v_change').setLabel('Đổi Tên').setStyle(ButtonStyle.Primary).setEmoji('📝'),
+            new ButtonBuilder().setCustomId('v_unlink').setLabel('Unlink').setStyle(ButtonStyle.Danger).setEmoji('🗑️')
+        );
+
+        await vChan.send({ embeds: [embed], components: [row] });
+        msg.reply(`✅ Đã gửi lại bảng Verify tại <#${CONFIG.VERIFY_CHANNEL_ID}>!`);
     }
-
-    updateAutoLB();
-});
-
 // --- EVENT: XỬ LÝ LỆNH TỪ NGƯỜI DÙNG ---
 client.on('messageCreate', async (msg) => {
     if (msg.author.bot || !msg.guild) return;
