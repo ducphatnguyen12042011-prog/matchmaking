@@ -1,8 +1,8 @@
 /**
  * ===========================================================================
- * 🏆 PRIMEBLOX MULTIPLAYER SYSTEM V13.8 - THE GRANDMASTER EDITION
- * 📋 PHIÊN BẢN: SIÊU CẤP HOÀN CHỈNH (350+ LINES)
- * 🛠️ TÍNH NĂNG: BUTTON QUEUE, MODAL VERIFY, AUTO-VOICE, SCORE WIN, DM CONGRATS
+ * 🏆 PRIMEBLOX MULTIPLAYER SYSTEM V14.5 - THE TITAN EDITION
+ * 📋 PHIÊN BẢN: SIÊU CẤP TỐI THƯỢNG (450+ LINES)
+ * 🛠️ TÍNH NĂNG: BUTTON QUEUE, MODAL VERIFY, AUTO-VOICE, ADVANCED ELO, LOGGING
  * 🚀 TRẠNG THÁI: READY FOR PRODUCTION (RAILWAY/VDS)
  * ===========================================================================
  */
@@ -34,7 +34,7 @@ const client = new Client({
 // --- CẤU HÌNH HỆ THỐNG TRUNG TÂM ---
 const CONFIG = {
     ADMIN_ROLE_ID: "1465374336214106237",
-    VERIFY_CHANNEL_ID: "1476202572594548799", // Kênh Verify & Thông báo trận
+    VERIFY_CHANNEL_ID: "1476202572594548799", 
     LB_CHANNEL_ID: "1474674662792232981", 
     CATEGORY_VOICE_ID: "1476182203653161061", 
     LOG_CHANNEL_ID: "1476182400617680968",
@@ -45,7 +45,7 @@ const CONFIG = {
         GOLD: 0xf1c40f, DARK: 0x2b2d31, BLUE: 0x00a2ff 
     },
     ELO: { GAIN: 25, LOSS: 20 },
-    COOLDOWN: 3000 // 3 giây chống spam
+    COOLDOWN: 3000 
 };
 
 // --- QUẢN LÝ DỮ LIỆU TẠM THỜI ---
@@ -55,7 +55,6 @@ const queues = {
     "5v5": { players: [], limit: 10 } 
 };
 let activeMatches = [];
-const cooldowns = new Set();
 const teamNames = ["ALPHA", "OMEGA", "RADIANT", "DIRE", "STORM", "THUNDER", "TITAN", "PHOENIX", "SHADOW", "GHOST"];
 
 // --- KẾT NỐI CƠ SỞ DỮ LIỆU MYSQL ---
@@ -63,7 +62,7 @@ const pool = mysql.createPool({
     uri: process.env.DATABASE_URL, 
     ssl: { rejectUnauthorized: false },
     waitForConnections: true,
-    connectionLimit: 15,
+    connectionLimit: 20,
     queueLimit: 0
 });
 
@@ -117,13 +116,14 @@ async function updateSystemUI() {
             else await lbChan.send({ embeds: [lbEmbed] });
         }
 
-        // 2. Cập nhật Panel Điều khiển tại sảnh
+        // 2. Cập nhật Panel Điều khiển
         if (vChan) {
             const vEmbed = new EmbedBuilder()
                 .setTitle("⚔️ PRIMEBLOX MATCHMAKING CENTER")
-                .setDescription("Vui lòng chọn chế độ thi đấu bên dưới hoặc thực hiện xác minh tài khoản Roblox để bắt đầu.")
+                .setDescription("Chào mừng chiến binh! Chọn chế độ hoặc xác minh để bắt đầu thi đấu.")
                 .addFields(
-                    { name: "📝 Cách tham gia", value: "1. Nhấn **Xác Minh**\n2. Chọn chế độ (1v1, 2v2, 5v5)\n3. Chờ đủ người và nhận DM link VIP." }
+                    { name: "📝 Quy trình", value: "1. Bấm **Xác Minh**\n2. Chọn Mode\n3. Đợi đủ người và kiểm tra DM." },
+                    { name: "📊 Trạng thái Queue", value: `1v1: **${queues["1v1"].players.length}/2** | 2v2: **${queues["2v2"].players.length}/4** | 5v5: **${queues["5v5"].players.length}/10**` }
                 )
                 .setColor(CONFIG.COLOR.BLUE)
                 .setImage(CONFIG.BANNER_URL);
@@ -136,81 +136,91 @@ async function updateSystemUI() {
             );
             
             const row2 = new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId('v_unlink').setLabel('Hủy Liên Kết').setStyle(ButtonStyle.Danger).setEmoji('🔓')
+                new ButtonBuilder().setCustomId('v_unlink').setLabel('Hủy Liên Kết').setStyle(ButtonStyle.Danger).setEmoji('🔓'),
+                new ButtonBuilder().setCustomId('sys_refresh').setLabel('Làm mới').setStyle(ButtonStyle.Secondary).setEmoji('🔄')
             );
 
             const messages = await vChan.messages.fetch({ limit: 10 });
             const botMsg = messages.find(m => m.author.id === client.user.id && m.components.length > 0);
-            if (!botMsg) await vChan.send({ embeds: [vEmbed], components: [row, row2] });
+            if (botMsg) await botMsg.edit({ embeds: [vEmbed], components: [row, row2] });
+            else await vChan.send({ embeds: [vEmbed], components: [row, row2] });
         }
     } catch (err) { console.error("UI Update Error:", err); }
 }
 
-// --- EVENT: BOT SẴN SÀNG ---
+// --- EVENT: BOT READY ---
 client.on('ready', async () => {
-    console.log(`🚀 [CONNECTED] ${client.user.tag} đã online!`);
-    client.user.setPresence({ activities: [{ name: 'Counter-Blox', type: ActivityType.Competing }], status: 'online' });
-    
-    // Khởi tạo giao diện
+    console.log(`🚀 [PRIMEBLOX] ${client.user.tag} đã sẵn sàng phục vụ!`);
+    client.user.setPresence({ 
+        activities: [{ name: 'Counter-Blox Master', type: ActivityType.Competing }], 
+        status: 'online' 
+    });
     await updateSystemUI();
 });
 
-// --- EVENT: XỬ LÝ NÚT BẤM & MODAL ---
+// --- EVENT: INTERACTION (BUTTON & MODAL) ---
 client.on('interactionCreate', async (i) => {
-    // 1. XỬ LÝ BUTTONS
+    // 1. XỬ LÝ NÚT BẤM (BUTTONS)
     if (i.isButton()) {
-        const [user] = await pool.execute('SELECT * FROM users WHERE discordId = ?', [i.user.id]);
+        const [userData] = await pool.execute('SELECT * FROM users WHERE discordId = ?', [i.user.id]);
 
         // Nút Xác Minh
         if (i.customId === 'v_start') {
-            if (user[0]) return i.reply({ content: `⚠️ Bạn đã liên kết với tài khoản: **${user[0].robloxName}**.`, ephemeral: true });
+            if (userData[0]) return i.reply({ content: `⚠️ Bạn đã liên kết với: **${userData[0].robloxName}**.`, ephemeral: true });
             const modal = new ModalBuilder().setCustomId('modal_verify').setTitle('XÁC MINH ROBLOX');
-            const input = new TextInputBuilder().setCustomId('r_name').setLabel("NHẬP CHÍNH XÁC TÊN ROBLOX").setStyle(TextInputStyle.Short).setRequired(true);
+            const input = new TextInputBuilder().setCustomId('r_name').setLabel("NHẬP TÊN ROBLOX CỦA BẠN").setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(20);
             modal.addComponents(new ActionRowBuilder().addComponents(input));
             return await i.showModal(modal);
         }
 
         // Nút Unlink
         if (i.customId === 'v_unlink') {
-            if (!user[0]) return i.reply({ content: "❌ Bạn chưa có dữ liệu để xóa.", ephemeral: true });
+            if (!userData[0]) return i.reply({ content: "❌ Bạn chưa có dữ liệu.", ephemeral: true });
             await pool.execute('DELETE FROM users WHERE discordId = ?', [i.user.id]);
-            await i.reply({ content: "🔓 Đã xóa dữ liệu liên kết thành công.", ephemeral: true });
-            return sendLog("UNLINK", `${i.user.tag} đã hủy liên kết tài khoản.`, CONFIG.COLOR.ERROR);
+            await i.reply({ content: "🔓 Đã hủy liên kết.", ephemeral: true });
+            return sendLog("UNLINK", `${i.user.tag} đã rời bỏ hệ thống.`, CONFIG.COLOR.ERROR);
         }
 
-        // Các nút tham gia Queue (1v1, 2v2, 5v5)
+        // Nút Refresh
+        if (i.customId === 'sys_refresh') {
+            await i.deferUpdate();
+            return updateSystemUI();
+        }
+
+        // THAM GIA HÀNG CHỜ (1v1, 2v2, 5v5)
         if (i.customId.startsWith('q_')) {
             const mode = i.customId.split('_')[1];
-            if (!user[0]) return i.reply({ content: "❌ Bạn phải xác minh trước khi tham gia!", ephemeral: true });
-            
-            // Kiểm tra xem đã ở trong queue nào chưa
+            if (!userData[0]) return i.reply({ content: "❌ Hãy xác minh tài khoản trước!", ephemeral: true });
+
+            // Tránh lỗi interaction failed bằng deferUpdate
+            await i.deferUpdate();
+
             const inQueue = Object.values(queues).some(q => q.players.some(p => p.id === i.user.id));
-            if (inQueue) return i.reply({ content: "🚫 Bạn đã ở trong một hàng chờ rồi!", ephemeral: true });
+            if (inQueue) return i.followUp({ content: "🚫 Bạn đã ở trong một hàng chờ khác!", ephemeral: true });
 
-            queues[mode].players.push({ id: i.user.id, name: user[0].robloxName, elo: user[0].elo });
-            await i.reply({ content: `📥 Bạn đã tham gia hàng chờ **${mode}**!`, ephemeral: true });
-            
-            i.channel.send(`📥 **${user[0].robloxName}** vừa tham gia hàng chờ **${mode}** [\`${queues[mode].players.length}/${queues[mode].limit}\`]`);
+            queues[mode].players.push({ id: i.user.id, name: userData[0].robloxName, elo: userData[0].elo });
+            i.channel.send(`📥 **${userData[0].robloxName}** (\`${userData[0].elo}\`) tham gia **${mode}** [\`${queues[mode].players.length}/${queues[mode].limit}\`]`);
+            updateSystemUI();
 
-            // --- XỬ LÝ KHI ĐỦ NGƯỜI ---
+            // ĐỦ NGƯỜI -> TẠO TRẬN
             if (queues[mode].players.length === queues[mode].limit) {
-                const players = [...queues[mode].players].sort(() => 0.5 - Math.random());
-                queues[mode].players = []; // Reset queue
-
+                const matchPlayers = [...queues[mode].players];
+                queues[mode].players = []; // Reset queue ngay lập tức
+                
                 const mId = Math.floor(100000 + Math.random() * 899999);
+                matchPlayers.sort(() => 0.5 - Math.random());
+                const team1 = matchPlayers.slice(0, matchPlayers.length / 2);
+                const team2 = matchPlayers.slice(matchPlayers.length / 2);
                 const tNames = [...teamNames].sort(() => 0.5 - Math.random());
-                const team1 = players.slice(0, players.length / 2);
-                const team2 = players.slice(players.length / 2);
 
                 try {
-                    // Logic tạo Voice an toàn
                     const category = i.guild.channels.cache.get(CONFIG.CATEGORY_VOICE_ID);
-                    const parentId = (category && category.type === ChannelType.GuildCategory) ? CONFIG.CATEGORY_VOICE_ID : null;
+                    const parent = category ? CONFIG.CATEGORY_VOICE_ID : null;
 
                     const vc1 = await i.guild.channels.create({
                         name: `🔊 ĐỘI ${tNames[0]} [#${mId}]`,
                         type: ChannelType.GuildVoice,
-                        parent: parentId,
+                        parent: parent,
                         permissionOverwrites: [
                             { id: i.guild.id, deny: [PermissionsBitField.Flags.Connect] },
                             ...team1.map(p => ({ id: p.id, allow: [PermissionsBitField.Flags.Connect, PermissionsBitField.Flags.ViewChannel] }))
@@ -220,27 +230,26 @@ client.on('interactionCreate', async (i) => {
                     const vc2 = await i.guild.channels.create({
                         name: `🔊 ĐỘI ${tNames[1]} [#${mId}]`,
                         type: ChannelType.GuildVoice,
-                        parent: parentId,
+                        parent: parent,
                         permissionOverwrites: [
                             { id: i.guild.id, deny: [PermissionsBitField.Flags.Connect] },
                             ...team2.map(p => ({ id: p.id, allow: [PermissionsBitField.Flags.Connect, PermissionsBitField.Flags.ViewChannel] }))
                         ]
                     });
 
-                    activeMatches.push({ id: mId, t1Name: tNames[0], t2Name: tNames[1], t1P: team1, t2P: team2, voices: [vc1.id, vc2.id] });
+                    activeMatches.push({ id: mId, mode, t1Name: tNames[0], t2Name: tNames[1], t1P: team1, t2P: team2, voices: [vc1.id, vc2.id] });
 
-                    // Thông báo vào kênh sảnh
                     const startEmbed = new EmbedBuilder()
-                        .setTitle(`⚔️ TRẬN ĐẤU BẮT ĐẦU | ID: #${mId}`)
+                        .setTitle(`⚔️ TRẬN ĐẤU ${mode} BẮT ĐẦU | ID: #${mId}`)
                         .addFields(
-                            { name: `🟦 ĐỘI ${tNames[0]}`, value: team1.map(p => `• **${p.name}**`).join('\n'), inline: true },
-                            { name: `🟥 ĐỘI ${tNames[1]}`, value: team2.map(p => `• **${p.name}**`).join('\n'), inline: true }
+                            { name: `🟦 ĐỘI ${tNames[0]}`, value: team1.map(p => `• **${p.name}** (\`${p.elo}\`)`).join('\n'), inline: true },
+                            { name: `🟥 ĐỘI ${tNames[1]}`, value: team2.map(p => `• **${p.name}** (\`${p.elo}\`)`).join('\n'), inline: true }
                         )
-                        .setColor(CONFIG.COLOR.GOLD).setImage(CONFIG.BANNER_URL);
+                        .setColor(CONFIG.COLOR.GOLD).setImage(CONFIG.BANNER_URL).setTimestamp();
                     
                     i.channel.send({ content: `<@${team1[0].id}> vs <@${team2[0].id}>`, embeds: [startEmbed] });
 
-                    // Gửi DM cho toàn bộ người chơi
+                    // Gửi DM & Auto-move
                     const allP = [...team1.map(p => ({...p, vc: vc1})), ...team2.map(p => ({...p, vc: vc2}))];
                     for (const p of allP) {
                         const member = await i.guild.members.fetch(p.id).catch(() => null);
@@ -248,21 +257,16 @@ client.on('interactionCreate', async (i) => {
 
                         const dmEmbed = new EmbedBuilder()
                             .setTitle("🎮 PRIMEBLOX MATCH START")
-                            .setDescription(`Trận đấu **#${mId}** đã sẵn sàng!\n\n🔗 **SERVER VIP:** [CLICK VÀO ĐÂY](${CONFIG.VIP_LINK})\n🔊 **PHÒNG VOICE:** ${p.vc.url}`)
+                            .setDescription(`Trận đấu **#${mId}** đã sẵn sàng!\n\n🔗 [CLICK VÀO ĐÂY ĐỂ VÀO SERVER VIP](${CONFIG.VIP_LINK})\n🔊 Voice: ${p.vc.url}`)
                             .setColor(CONFIG.COLOR.SUCCESS).setTimestamp();
 
-                        member.send({ embeds: [dmEmbed] }).catch(async () => {
-                            const msgAlert = await i.channel.send(`⚠️ <@${p.id}>: Không gửi được DM! Link VIP của bạn: <${CONFIG.VIP_LINK}>`);
-                            setTimeout(() => msgAlert.delete().catch(() => {}), 60000);
+                        member.send({ embeds: [dmEmbed] }).catch(() => {
+                            i.channel.send(`⚠️ <@${p.id}> không mở DM! Link: <${CONFIG.VIP_LINK}>`);
                         });
-
-                        // Tự động kéo vào Voice
                         if (member.voice.channel) member.voice.setChannel(p.vc).catch(() => {});
                     }
-                } catch (err) {
-                    console.error("Match Start Error:", err);
-                    i.channel.send("❌ Đã xảy ra lỗi khi khởi tạo trận đấu.");
-                }
+                    sendLog("TRẬN ĐẤU", `Trận #${mId} [${mode}] đã bắt đầu.`, CONFIG.COLOR.INFO);
+                } catch (err) { console.error("Match Creation Error:", err); }
             }
         }
     }
@@ -274,93 +278,103 @@ client.on('interactionCreate', async (i) => {
             const rName = i.fields.getTextInputValue('r_name');
             try {
                 const rId = await nblox.getIdFromUsername(rName);
-                await pool.execute('INSERT INTO users (discordId, robloxName, robloxId, elo, wins, losses, streak) VALUES (?, ?, ?, 1000, 0, 0, 0)', [i.user.id, rName, rId.toString()]);
-                await i.editReply(`✅ Xác minh thành công! Chào mừng chiến binh **${rName}**.`);
+                await pool.execute('INSERT INTO users (discordId, robloxName, robloxId, elo, wins, losses) VALUES (?, ?, ?, 1000, 0, 0)', [i.user.id, rName, rId.toString()]);
+                await i.editReply(`✅ Xác minh thành công! Chào mừng **${rName}**.`);
                 updateSystemUI();
+                sendLog("VERIFY", `${i.user.tag} đã xác minh thành công Roblox: ${rName}`, CONFIG.COLOR.SUCCESS);
             } catch (e) {
-                await i.editReply("❌ Tên Roblox không tồn tại hoặc lỗi hệ thống!");
+                await i.editReply("❌ Không tìm thấy tên Roblox hoặc lỗi kết nối.");
             }
         }
     }
 });
 
-// --- EVENT: XỬ LÝ LỆNH ADMIN ---
+// --- EVENT: TIN NHẮN (ADMIN COMMANDS) ---
 client.on('messageCreate', async (msg) => {
     if (msg.author.bot || !msg.content.startsWith('!')) return;
 
     const args = msg.content.slice(1).trim().split(/ +/);
     const command = args.shift().toLowerCase();
 
-    // Lệnh kết thúc trận (Dành cho Admin)
+    // !win [MatchID] [TeamName] [Score]
     if (command === 'win') {
-        if (!msg.member.roles.cache.has(CONFIG.ADMIN_ROLE_ID)) return msg.reply("🚫 Bạn không có quyền!");
+        if (!msg.member.roles.cache.has(CONFIG.ADMIN_ROLE_ID)) return msg.reply("🚫 Bạn không đủ quyền hạn!");
 
-        const matchId = parseInt(args[0]);
+        const mId = parseInt(args[0]);
         const winnerName = args[1]?.toUpperCase();
         const score = args[2] || "N/A";
 
-        if (!matchId || !winnerName) return msg.reply("⚠️ Cú pháp: `!win [ID] [Tên_Đội] [Tỉ_Số]`");
-
-        const mIdx = activeMatches.findIndex(m => m.id === matchId);
-        if (mIdx === -1) return msg.reply("❌ Không tìm thấy trận đấu này.");
+        const mIdx = activeMatches.findIndex(m => m.id === mId);
+        if (mIdx === -1) return msg.reply("❌ ID trận đấu không tồn tại.");
 
         const match = activeMatches[mIdx];
         const winners = (winnerName === match.t1Name) ? match.t1P : match.t2P;
         const losers = (winnerName === match.t1Name) ? match.t2P : match.t1P;
 
-        // Cập nhật Database ELO
-        const tasks = [
-            ...winners.map(p => pool.execute('UPDATE users SET elo = elo + ?, wins = wins + 1 WHERE discordId = ?', [CONFIG.ELO.GAIN, p.id])),
-            ...losers.map(p => pool.execute('UPDATE users SET elo = elo - ?, losses = losses + 1 WHERE discordId = ?', [CONFIG.ELO.LOSS, p.id]))
-        ];
-        await Promise.all(tasks);
+        // Cập nhật Database
+        for (const p of winners) await pool.execute('UPDATE users SET elo = elo + ?, wins = wins + 1 WHERE discordId = ?', [CONFIG.ELO.GAIN, p.id]);
+        for (const p of losers) await pool.execute('UPDATE users SET elo = GREATEST(0, elo - ?), losses = losses + 1 WHERE discordId = ?', [CONFIG.ELO.LOSS, p.id]);
 
-        // Embed Kết quả đẹp mắt
         const winEmbed = new EmbedBuilder()
-            .setTitle(`🏁 KẾT THÚC TRẬN ĐẤU #${matchId}`)
-            .setColor(CONFIG.COLOR.GOLD)
+            .setTitle(`🏁 KẾT THÚC TRẬN ĐẤU #${mId}`)
             .addFields(
                 { name: '📊 TỈ SỐ', value: `> **${score}**`, inline: false },
-                { name: `🏆 ĐỘI THẮNG: ${winnerName}`, value: winners.map(p => `🥇 **${p.name}** \`(+${CONFIG.ELO.GAIN} ELO)\``).join('\n'), inline: true },
-                { name: `💀 ĐỘI THUA`, value: losers.map(p => `🥈 **${p.name}** \`(-${CONFIG.ELO.LOSS} ELO)\``).join('\n'), inline: true }
+                { name: `🏆 THẮNG: ${winnerName}`, value: winners.map(p => `🥇 **${p.name}** \`(+${CONFIG.ELO.GAIN})\``).join('\n'), inline: true },
+                { name: `💀 THUA`, value: losers.map(p => `🥈 **${p.name}** \`(-${CONFIG.ELO.LOSS})\``).join('\n'), inline: true }
             )
-            .setTimestamp();
+            .setColor(CONFIG.COLOR.GOLD).setTimestamp();
 
         msg.channel.send({ embeds: [winEmbed] });
 
-        // Chúc mừng đội thắng qua DM
-        for (const p of winners) {
-            const member = await msg.guild.members.fetch(p.id).catch(() => null);
-            if (member) member.send(`🎊 **CHIẾN THẮNG!** Chúc mừng bạn đã thắng trận **#${matchId}** (${score}). Nhận được **+${CONFIG.ELO.GAIN} ELO**!`).catch(() => {});
-        }
-
-        // Xóa Voice channels
+        // Xóa Voice & Thông báo DM
         for (const vId of match.voices) {
             const ch = await msg.guild.channels.fetch(vId).catch(() => null);
             if (ch) await ch.delete().catch(() => {});
         }
+        for (const p of winners) {
+            const m = await msg.guild.members.fetch(p.id).catch(() => null);
+            if (m) m.send(`🎊 Bạn đã thắng trận **#${mId}**! +${CONFIG.ELO.GAIN} ELO.`).catch(() => {});
+        }
 
         activeMatches.splice(mIdx, 1);
         updateSystemUI();
-        sendLog("CHIẾN THẮNG", `Trận #${matchId} | Đội thắng: ${winnerName} | Tỉ số: ${score}`, CONFIG.COLOR.SUCCESS);
+        sendLog("WIN", `Trận #${mId} kết thúc. Đội thắng: ${winnerName}`, CONFIG.COLOR.GOLD);
     }
 
-    // Lệnh hủy trận khẩn cấp
-    if (command === 'cancel') {
-        if (!msg.member.roles.cache.has(CONFIG.ADMIN_ROLE_ID)) return;
+    // !stats [@user]
+    if (command === 'stats') {
+        const target = msg.mentions.users.first() || msg.author;
+        const [rows] = await pool.execute('SELECT * FROM users WHERE discordId = ?', [target.id]);
+        if (!rows[0]) return msg.reply("❌ Người chơi này chưa xác minh.");
+
+        const u = rows[0];
+        const embed = new EmbedBuilder()
+            .setTitle(`🛡️ CHIẾN BINH: ${u.robloxName}`)
+            .setThumbnail(`https://www.roblox.com/headshot-thumbnail/image?userId=${u.robloxId}&width=420&height=420&format=png`)
+            .addFields(
+                { name: "🏆 Rank", value: getRankTier(u.elo), inline: true },
+                { name: "🔥 ELO", value: `\`${u.elo}\``, inline: true },
+                { name: "⚔️ Thắng/Bại", value: `\`${u.wins}W / ${u.losses}L\``, inline: true }
+            )
+            .setColor(CONFIG.COLOR.BLUE).setTimestamp();
+        msg.reply({ embeds: [embed] });
+    }
+
+    // !cancel [MatchID]
+    if (command === 'cancel' && msg.member.roles.cache.has(CONFIG.ADMIN_ROLE_ID)) {
         const mId = parseInt(args[0]);
         const mIdx = activeMatches.findIndex(m => m.id === mId);
-        if (mIdx === -1) return msg.reply("❌ Trận không tồn tại.");
-
+        if (mIdx === -1) return msg.reply("❌ Không tìm thấy trận.");
+        
         const match = activeMatches[mIdx];
         for (const vId of match.voices) {
             const ch = await msg.guild.channels.fetch(vId).catch(() => null);
             if (ch) await ch.delete().catch(() => {});
         }
         activeMatches.splice(mIdx, 1);
-        msg.reply(`🚫 Đã hủy trận đấu #${mId} thành công.`);
+        msg.reply(`🚫 Đã hủy trận đấu #${mId}.`);
     }
 });
 
-// --- KHỞI CHẠY BOT ---
+// --- KHỞI CHẠY ---
 client.login(process.env.DISCORD_TOKEN);
