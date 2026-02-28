@@ -359,5 +359,173 @@ client.on(Events.PresenceUpdate, (oldP, newP) => {
 // Xử lý lỗi tập trung
 process.on('unhandledRejection', e => console.error('Unhandled:', e));
 process.on('uncaughtException', e => console.error('Uncaught:', e));
+// COMMAND: LEAVE
+    if (cmd === 'l' || cmd === 'leave') {
+        let removedMode = null;
+        
+        // Kiểm tra tất cả các hàng chờ
+        Object.keys(matchmaking).forEach(mode => {
+            if (matchmaking[mode].has(msg.author.id)) {
+                matchmaking[mode].delete(msg.author.id);
+                removedMode = mode;
+            }
+        });
+
+        if (removedMode) {
+            const leaveEmbed = new EmbedBuilder()
+                .setTitle("🚪 RỜI HÀNG CHỜ")
+                .setDescription(`Bạn đã rời khỏi hàng chờ **${removedMode}** thành công.`)
+                .setColor(CONFIG.COLORS.ERROR)
+                .setTimestamp();
+            
+            return msg.reply({ embeds: [leaveEmbed] });
+        } else {
+            return msg.reply("⚠️ Bạn hiện không có trong bất kỳ hàng chờ nào.");
+        }
+    }
+// COMMAND: STATS (UPGRADED VERSION)
+    if (cmd === 'stats') {
+        try {
+            // 1. Lấy dữ liệu từ Database
+            const [dbStats] = await pool.execute('SELECT COUNT(*) as total FROM players');
+            const [topPlayer] = await pool.execute('SELECT robloxName, elo FROM players ORDER BY elo DESC LIMIT 1');
+            
+            // 2. Tính toán số lượng người trong hàng chờ
+            const q1v1 = matchmaking["1v1"].size;
+            const q2v2 = matchmaking["2v2"].size;
+            const q5v5 = matchmaking["5v5"].size;
+            const totalInQueue = q1v1 + q2v2 + q5v5;
+
+            // 3. Tạo thanh tiến trình giả lập (Progress Bar)
+            const createBar = (current, max) => {
+                const filled = Math.round((current / max) * 10);
+                return "🟩".repeat(Math.min(filled, 10)) + "⬛".repeat(Math.max(0, 10 - filled));
+            };
+
+            const statsEmbed = new EmbedBuilder()
+                .setAuthor({ 
+                    name: "PRIMEBLOX NETWORK MONITOR", 
+                    iconURL: client.user.displayAvatarURL() 
+                })
+                .setTitle("📊 THỐNG KÊ HỆ THỐNG CHIẾN TRƯỜNG")
+                .setColor(CONFIG.COLORS.GOLD)
+                .setThumbnail("https://i.imgur.com/A6uLpCj.png") // Icon cúp hoặc radar
+                .addFields(
+                    { 
+                        name: "👥 DÂN SỐ", 
+                        value: ` Tổng cộng: \`${dbStats[0].total}\` user\n Đang trực tuyến: \`${client.users.cache.size}\``, 
+                        inline: true 
+                    },
+                    { 
+                        name: "⚔️ TRẬN ĐẤU", 
+                        value: ` Đang diễn ra: \`${activeMatches.size}\` trận\n Đang chờ: \`${totalInQueue}\` người`, 
+                        inline: true 
+                    },
+                    { 
+                        name: "🏆 CAO THỦ HIỆN TẠI", 
+                        value: `👑 **${topPlayer[0]?.robloxName || "N/A"}** (\`${topPlayer[0]?.elo || 0}\` ELO)`, 
+                        inline: false 
+                    },
+                    {
+                        name: "📥 TÌNH TRẠNG HÀNG CHỜ",
+                        value: [
+                            `**1vs1:** \`[${q1v1}/2]\` ${createBar(q1v1, 2)}`,
+                            `**2vs2:** \`[${q2v2}/4]\` ${createBar(q2v2, 4)}`,
+                            `**5vs5:** \`[${q5v5}/10]\` ${createBar(q5v5, 10)}`
+                        ].join('\n'),
+                        inline: false
+                    },
+                    {
+                        name: "⚙️ THÔNG SỐ KỸ THUẬT",
+                        value: `\`\`\`ml\nLatency : ${client.ws.ping}ms\nUptime  : ${Math.floor(client.uptime / 3600000)}h ${Math.floor((client.uptime % 3600000) / 60000).toString().padStart(2, '0')}m\nMemory  : ${(process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2)} MB\`\`\``,
+                        inline: false
+                    }
+                )
+                .setFooter({ text: "Hệ thống cập nhật dữ liệu thời gian thực" })
+                .setTimestamp();
+
+            msg.channel.send({ embeds: [statsEmbed] });
+
+        } catch (e) {
+            console.error(e);
+            msg.reply("❌ Lỗi khi trích xuất dữ liệu thống kê.");
+        }
+    }
+// COMMAND: !p hoặc !profile
+    if (cmd === 'p' || cmd === 'profile') {
+        const target = msg.mentions.users.first() || msg.author;
+
+        try {
+            // 1. Lấy dữ liệu từ Database
+            const [rows] = await pool.execute('SELECT * FROM players WHERE discordId = ?', [target.id]);
+
+            if (!rows[0]) {
+                return msg.reply(target.id === msg.author.id 
+                    ? "❌ Bạn chưa xác minh! Hãy sang kênh <#" + CONFIG.CHANNELS.VERIFY + "> để đăng ký." 
+                    : "❌ Người chơi này chưa có dữ liệu trong hệ thống.");
+            }
+
+            const p = rows[0];
+            const tier = getTier(p.elo);
+            const totalGames = p.wins + p.losses;
+            const winRate = totalGames === 0 ? 0 : ((p.wins / totalGames) * 100).toFixed(1);
+
+            // 2. Tính toán Rank tiếp theo (Progress Bar)
+            const currentTierIndex = RANK_TIERS.findIndex(t => t.min === tier.min);
+            const nextTier = RANK_TIERS[currentTierIndex - 1] || tier; // Lấy rank cao hơn 1 bậc
+            
+            let progressStr = "";
+            if (tier.name === "👑 GRANDMASTER") {
+                progressStr = "⭐⭐⭐⭐⭐ **MAX RANK**";
+            } else {
+                const range = nextTier.min - tier.min;
+                const currentProgress = p.elo - tier.min;
+                const percent = Math.floor((currentProgress / range) * 100);
+                const blocks = Math.floor(percent / 10);
+                progressStr = `\`${"🟦".repeat(blocks)}${"⬛".repeat(10 - blocks)}\` **${percent}%**`;
+            }
+
+            // 3. Khởi tạo Embed "Siêu Cấp"
+            const profileEmbed = new EmbedBuilder()
+                .setColor(tier.color)
+                .setAuthor({ 
+                    name: `HỒ SƠ TAY TO: ${p.robloxName.toUpperCase()}`, 
+                    iconURL: target.displayAvatarURL({ dynamic: true }) 
+                })
+                .setThumbnail(`https://www.roblox.com/headshot-thumbnail/image?userId=${p.robloxId}&width=150&height=150&format=png`)
+                .setDescription(`>>> 🛡️ **Hạng:** \`${tier.name}\`\n🔥 **Uy tín:** \`Cao\``)
+                .addFields(
+                    { 
+                        name: "🏆 CHỈ SỐ XẾP HẠNG", 
+                        value: `💰 ELO: \`${p.elo}\` \n🥇 Thắng: \`${p.wins}\` \n💀 Thua: \`${p.losses}\``, 
+                        inline: true 
+                    },
+                    { 
+                        name: "🎯 HIỆU SUẤT", 
+                        value: `📈 Winrate: \`${winRate}%\` \n🎮 Tổng: \`${totalGames}\` trận\n🔥 Chuỗi: \`+3\``, // Chuỗi thắng có thể code thêm sau
+                        inline: true 
+                    },
+                    {
+                        name: `🚀 TIẾN TRÌNH ĐẾN ${nextTier.name}`,
+                        value: progressStr,
+                        inline: false
+                    },
+                    {
+                        name: "🔗 THÔNG TIN ROBLOX",
+                        value: `🆔 ID: \`${p.robloxId}\` \n👤 Tên: [${p.robloxName}](https://www.roblox.com/users/${p.robloxId}/profile)`,
+                        inline: false
+                    }
+                )
+                .setImage(CONFIG.GAME.BANNER)
+                .setFooter({ text: `PrimeBlox Ranked • Xem hồ sơ bằng cách !p @tag`, iconURL: client.user.displayAvatarURL() })
+                .setTimestamp();
+
+            msg.channel.send({ embeds: [profileEmbed] });
+
+        } catch (e) {
+            console.error(e);
+            msg.reply("❌ Đã xảy ra lỗi khi truy xuất hồ sơ.");
+        }
+    }
 
 client.login(process.env.DISCORD_TOKEN);
